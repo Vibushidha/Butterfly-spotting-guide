@@ -20,18 +20,19 @@ st.write("Describe a butterfly, upload an image, or use your voice to identify i
 # -----------------------------
 # 🦋 Butterfly Data
 # -----------------------------
+# Use os.path.join to ensure the path is correctly constructed relative to the app.py file
 # os.path.dirname(__file__) gets the directory where app.py is located.
 IMAGE_DIR = os.path.join(os.path.dirname(__file__), "data", "sample_images")
-butterflies = {
-    "Monarch": "data/sample_images/monarch.jpg",
-    "Swallowtail": "data/sample_images/swallowtail.jpg",
-    "Blue Morpho": "data/sample_images/blue_morpho.jpg",
-    "Painted Lady": "data/sample_images/painted_lady.jpg",
-    "Common Jezebel": "data/sample_images/common_jezebel.jpg",
-    "Peacock": "data/sample_images/peacock.jpg",
-    "Red Admiral": "data/sample_images/red_admiral.jpg",
-}
 
+butterflies = {
+    "Monarch": os.path.join(IMAGE_DIR, "monarch.jpg"),
+    "Swallowtail": os.path.join(IMAGE_DIR, "swallowtail.jpg"),
+    "Blue Morpho": os.path.join(IMAGE_DIR, "blue_morpho.jpg"),
+    "Painted Lady": os.path.join(IMAGE_DIR, "painted_lady.jpg"),
+    "Common Jezebel": os.path.join(IMAGE_DIR, "common_jezebel.jpg"),
+    "Peacock": os.path.join(IMAGE_DIR, "peacock.jpg"),
+    "Red Admiral": os.path.join(IMAGE_DIR, "red_admiral.jpg"),
+}
 facts = {
     "Monarch": "🧭 Monarchs migrate over 3,000 miles from North America to Mexico!",
     "Swallowtail": "🌼 Swallowtails have tails that resemble a bird’s feathers!",
