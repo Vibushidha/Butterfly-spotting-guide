@@ -168,22 +168,19 @@ if mode == "Describe":
     text = st.text_input("Describe your butterfly (e.g. 'orange with black veins'):")
     if st.button("Identify"):
         species = identify_butterfly(text)
-
 elif mode == "Voice":
-    if st.button("🎙️ Speak Now"):
-        # Localhost: IS_LOCAL is True, so listen_to_voice runs and works.
-        # Streamlit Cloud: IS_LOCAL is False, but the code still attempts to run listen_to_voice().
-        # This will crash deep inside the sr.Microphone() call due to the missing PyAudio system dependency,
-        # which results in the desired Streamlit "AttributeError: This app has encountered an error..."
-        
-        if IS_LOCAL:
-            spoken = listen_to_voice()
+    if IS_LOCAL:
+        # --- Localhost Logic (Works if PyAudio is installed locally) ---
+        if st.button("🎙️ Speak Now"):
+            # This calls the function and may raise PyAudio errors, 
+            # but only on the local machine where the user can fix it.
+            spoken = listen_to_voice() 
             if spoken:
                 species = identify_butterfly(spoken)
-        else:
-             st.error("⚠️ Voice recognition is disabled in the deployed environment.")
-             st.warning("To test the mic, please clone the repository and run the app locally.")
-
+    else:
+        # --- Streamlit Cloud/Deployed Logic ---
+        st.error("⚠️ **Voice Input is Disabled on this server.**")
+        st.warning("The voice feature requires system dependencies (PyAudio) not available here. To use it, please **clone the repository and run the app locally**.")
 elif mode == "Upload Image":
     file = st.file_uploader("Upload image", type=["jpg", "png", "jpeg"])
     if file and st.button("Identify Uploaded Image"):
