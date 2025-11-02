@@ -88,21 +88,46 @@ migration_data = {
 # -----------------------------
 # 🎙️ Voice Recognition
 # -----------------------------
-def listen_to_voice():
-    r = sr.Recognizer()
-    with sr.Microphone() as source:
-        st.info("🎤 Listening... describe the butterfly clearly (you have 5 seconds)...")
-        r.adjust_for_ambient_noise(source, duration=1)
-        audio = r.listen(source, phrase_time_limit=5)
+
+# Initialize the flag BEFORE the try block to avoid NameError
+VOICE_AVAILABLE = False 
+
+try:
+    import speech_recognition as sr
+    VOICE_AVAILABLE = True # Set to True only if the import is successful
+    
+    # Define the function only if the import succeeds
+    def listen_to_voice():
+        r = sr.Recognizer()
         try:
-            text = r.recognize_google(audio)
-            st.success(f"🗣️ You said: {text}")
-            return text
-        except sr.UnknownValueError:
-            st.error("😕 I couldn't understand that. Try again slowly.")
-        except sr.RequestError:
-            st.error("⚠️ Speech service unavailable. Please use text input.")
-    return None
+            with sr.Microphone() as source:
+                st.info("🎤 Listening... describe the butterfly clearly (you have 5 seconds)...")
+                r.adjust_for_ambient_noise(source, duration=1)
+                # The problematic line that raises PyAudio errors during runtime:
+                audio = r.listen(source, phrase_time_limit=5) 
+                try:
+                    text = r.recognize_google(audio)
+                    st.success(f"🗣️ You said: {text}")
+                    return text
+                except sr.UnknownValueError:
+                    st.error("😕 I couldn't understand that. Try again slowly.")
+                except sr.RequestError:
+                    st.error("⚠️ Speech service unavailable. Please use text input.")
+            return None
+        except Exception as e:
+            # Catch PyAudio/PortAudio related errors that happen when sr.Microphone() is called
+            st.error(f"⚠️ Voice input is not supported in this deployment environment. Please use Text or Image input.")
+            # st.code(f"Error: {e}", language="text") # Optional: show the error for debugging
+            return None
+            
+except Exception:
+    # If the system dependency (PyAudio) is missing during import, this block executes.
+    # VOICE_AVAILABLE remains False.
+    
+    # Define a placeholder function for the UI to call without crashing
+    def listen_to_voice():
+        st.error("⚠️ Voice input requires system libraries (PyAudio) that are not installed on this server. Please use Text or Image input.")
+        return None
 
 # -----------------------------
 # 🔍 Smarter Identification
@@ -151,7 +176,8 @@ if mode == "Describe":
         species = identify_butterfly(text)
 
 elif mode == "Voice":
-    if not VOICE_AVAILABLE:
+    # This check now works because VOICE_AVAILABLE is always defined
+    if not VOICE_AVAILABLE: 
         st.warning("⚠️ **Voice Input is Disabled** because PyAudio dependencies are missing on this server. Please choose **Describe** or **Upload Image**.")
     else:
         if st.button("🎙️ Speak Now"):
