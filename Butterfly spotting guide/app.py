@@ -20,6 +20,8 @@ st.write("Describe a butterfly, upload an image, or use your voice to identify i
 # -----------------------------
 # 🦋 Butterfly Data
 # -----------------------------
+# os.path.dirname(__file__) gets the directory where app.py is located.
+IMAGE_DIR = os.path.join(os.path.dirname(__file__), "data", "sample_images")
 butterflies = {
     "Monarch": "data/sample_images/monarch.jpg",
     "Swallowtail": "data/sample_images/swallowtail.jpg",
