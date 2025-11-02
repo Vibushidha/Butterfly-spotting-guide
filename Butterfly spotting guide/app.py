@@ -5,6 +5,8 @@ import pandas as pd
 import re
 import speech_recognition as sr
 import os
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, AudioProcessorBase
+import av # You might need this package too. Add 'av' to requirements.txt
 
 # -----------------------------
 # 🌿 App Config
