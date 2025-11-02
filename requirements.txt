@@ -4,3 +4,4 @@ pandas
 SpeechRecognition
 streamlit-webrtc
 av
+numpy
