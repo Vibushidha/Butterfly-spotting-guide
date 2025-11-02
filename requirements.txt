@@ -3,3 +3,4 @@ pydeck
 pandas
 SpeechRecognition
 streamlit-webrtc
+av
