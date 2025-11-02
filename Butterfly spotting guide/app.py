@@ -151,10 +151,13 @@ if mode == "Describe":
         species = identify_butterfly(text)
 
 elif mode == "Voice":
-    if st.button("🎙️ Speak Now"):
-        spoken = listen_to_voice()
-        if spoken:
-            species = identify_butterfly(spoken)
+    if not VOICE_AVAILABLE:
+        st.warning("⚠️ **Voice Input is Disabled** because PyAudio dependencies are missing on this server. Please choose **Describe** or **Upload Image**.")
+    else:
+        if st.button("🎙️ Speak Now"):
+            spoken = listen_to_voice()
+            if spoken:
+                species = identify_butterfly(spoken)
 
 elif mode == "Upload Image":
     file = st.file_uploader("Upload image", type=["jpg", "png", "jpeg"])
