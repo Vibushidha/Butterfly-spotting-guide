@@ -1,0 +1,7 @@
+streamlit
+random
+pydeck 
+pandas 
+re
+speech_recognition 
+os
