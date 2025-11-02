@@ -6,8 +6,58 @@ import re
 import speech_recognition as sr
 import os
 from streamlit_webrtc import webrtc_streamer, WebRtcMode, AudioProcessorBase
-import av # You might need this package too. Add 'av' to requirements.txt
+import av
+import numpy as np
+import io
+# -----------------------------
+# 🎙️ Real-Time Voice Processor
+# -----------------------------
+# This class runs on the server to collect audio chunks from the browser.
 
+class SpeechToTextProcessor(AudioProcessorBase):
+    def __init__(self):
+        # Using a list to hold raw audio frames
+        self.audio_container = []
+        self.is_recording = False
+        self.recognizer = sr.Recognizer() # Initialize the recognizer once
+
+    # The method called repeatedly with audio frames from the browser
+    def recv(self, frame: av.AudioFrame) -> av.AudioFrame:
+        if self.is_recording:
+            # Append the raw data from the audio frame
+            self.audio_container.append(frame.to_ndarray().tobytes())
+        return frame # Return the frame to avoid dropping it (WebRTC requirement)
+
+# Global variable to store transcribed text
+if 'transcribed_text' not in st.session_state:
+    st.session_state.transcribed_text = None
+
+def process_audio_chunks(audio_bytes_list, recognizer):
+    """Combines and processes audio chunks using the speech_recognition library."""
+    
+    if not audio_bytes_list:
+        return None
+        
+    # Concatenate all byte strings into a single byte string
+    combined_bytes = b''.join(audio_bytes_list)
+    
+    # 1. Create AudioData object
+    # Assuming 16000 sample rate and 2 bytes (16-bit) sample width, mono channel.
+    # WebRTC typically uses these settings.
+    try:
+        audio_data = recognizer.AudioData(combined_bytes, 16000, 2)
+    except Exception as e:
+        st.error(f"Error creating audio data: {e}")
+        return None
+        
+    # 2. Transcribe
+    try:
+        text = recognizer.recognize_google(audio_data)
+        return text
+    except sr.UnknownValueError:
+        return "UnknownValueError"
+    except sr.RequestError:
+        return "RequestError"
 # -----------------------------
 # 🌿 App Config
 # -----------------------------
@@ -86,18 +136,7 @@ migration_data = {
         {"month": "Oct", "lat": 41.9, "lon": 12.5, "place": "Italy", "reason": "Heading south again", "fact": "Ciao bella! 🇮🇹"},
     ],
 }
-# Add this class definition somewhere before your main interface code
-class AudioRecorder(AudioProcessorBase):
-    def __init__(self):
-        self.audio_chunks = []
-        self.is_recording = False
 
-    # This method is called repeatedly with audio frames
-    def recv(self, frame: av.AudioFrame) -> av.AudioFrame:
-        if self.is_recording:
-            # We capture the raw audio data from the frame
-            self.audio_chunks.append(frame.to_ndarray())
-        return frame
 
 # -----------------------------
 # 🎙️ Voice Recognition
@@ -190,72 +229,57 @@ if mode == "Describe":
         species = identify_butterfly(text)
 
 elif mode == "Voice":
-    st.markdown("### 🗣️ Voice Input (via Browser Microphone)")
-    st.info("Click START, speak your butterfly description for a few seconds, then click STOP.")
+    st.markdown("### 🗣️ Real-Time Voice Input (via Browser Microphone)")
+    st.info("Click START, speak your description, then click STOP to process.")
     
-    # 1. Start the WebRTC streamer
+    # Initialize the WebRTC stream
     webrtc_ctx = webrtc_streamer(
-        key="speech-rec",
+        key="speech-rec-key",
         mode=WebRtcMode.SENDONLY,
-        audio_processor_factory=AudioRecorder,
+        audio_processor_factory=SpeechToTextProcessor,
         media_stream_constraints={"video": False, "audio": True},
     )
 
-    # Check if the session is ready and the processor instance is available
+    # Check if the stream is active and the processor is available
     if webrtc_ctx.state.playing and webrtc_ctx.audio_processor:
-        processor: AudioRecorder = webrtc_ctx.audio_processor
+        processor: SpeechToTextProcessor = webrtc_ctx.audio_processor
 
-        # 2. Control the recording process
         col1, col2 = st.columns(2)
+        
+        # Start button logic
         with col1:
             if st.button("🔴 START Recording", use_container_width=True):
+                processor.audio_container = [] # Clear old data
                 processor.is_recording = True
-                processor.audio_chunks = [] # Clear previous recording
+                st.session_state.transcribed_text = None
                 st.session_state.voice_status = "Recording..."
-            
+
+        # Stop button logic
         with col2:
             if st.button("⏹️ STOP & Identify", use_container_width=True):
                 processor.is_recording = False
                 st.session_state.voice_status = "Processing..."
-        
-        st.caption(st.session_state.get("voice_status", "Ready to record."))
-
-
-        # 3. Process the audio when recording stops
-        if not processor.is_recording and processor.audio_chunks:
-            # Reconstruct the audio data for the speech_recognition library
-            
-            # The component gives us numpy arrays, we convert them to bytes
-            import numpy as np
-            audio_data_np = np.concatenate(processor.audio_chunks, axis=0)
-            audio_bytes = audio_data_np.tobytes()
-            
-            # Create a dummy AudioData object for the recognizer
-            r = sr.Recognizer()
-            
-            # IMPORTANT: This step requires knowing the sample rate/width of the audio.
-            # Assuming 16000 sample rate and 2 bytes (16-bit) sample width
-            # You might need to adjust these based on your environment!
-            audio_data = sr.AudioData(audio_bytes, 16000, 2)
-            
-            st.session_state.voice_status = "Sending to Google..."
-            st.rerun() # Rerun to update status while waiting
-            
-            try:
-                # Use Google Speech Recognition to get text
-                text = r.recognize_google(audio_data)
-                st.success(f"🗣️ You said: {text}")
                 
-                # Identify the butterfly using the transcribed text
-                species = identify_butterfly(text)
+                # Immediately process the audio data
+                if processor.audio_container:
+                    transcribed_text = process_audio_chunks(processor.audio_container, sr)
+                    
+                    if transcribed_text not in ["UnknownValueError", "RequestError"]:
+                        st.session_state.transcribed_text = transcribed_text
+                    
+                    # Clear the audio container immediately after processing
+                    processor.audio_container = []
+                
+        # Display current status
+        st.caption(f"Status: {st.session_state.get('voice_status', 'Ready')}")
 
-            except sr.UnknownValueError:
-                st.error("😕 I couldn't understand that. Try again slowly.")
-            except sr.RequestError as e:
-                st.error(f"⚠️ Speech service unavailable. Error: {e}")
+        # Final identification based on transcribed text stored in session state
+        if st.session_state.transcribed_text:
+            st.success(f"🗣️ Transcribed: {st.session_state.transcribed_text}")
             
-            # Clear chunks after processing
-            processor.audio_chunks = []
+            # Use the transcribed text to identify the butterfly
+            species = identify_butterfly(st.session_state.transcribed_text)
+            st.session_state.transcribed_text = None # Clear after use
 
 elif mode == "Upload Image":
     file = st.file_uploader("Upload image", type=["jpg", "png", "jpeg"])
