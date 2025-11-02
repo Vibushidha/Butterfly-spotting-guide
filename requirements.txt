@@ -1,7 +1,4 @@
 streamlit
-random
-pydeck 
-pandas 
-re
-speech_recognition 
-os
+pydeck
+pandas
+speech_recognition
