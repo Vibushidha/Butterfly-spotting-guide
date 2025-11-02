@@ -2,4 +2,4 @@ streamlit
 pydeck
 pandas
 SpeechRecognition
-pyaudio
+streamlit-webrtc
