@@ -86,6 +86,18 @@ migration_data = {
         {"month": "Oct", "lat": 41.9, "lon": 12.5, "place": "Italy", "reason": "Heading south again", "fact": "Ciao bella! 🇮🇹"},
     ],
 }
+# Add this class definition somewhere before your main interface code
+class AudioRecorder(AudioProcessorBase):
+    def __init__(self):
+        self.audio_chunks = []
+        self.is_recording = False
+
+    # This method is called repeatedly with audio frames
+    def recv(self, frame: av.AudioFrame) -> av.AudioFrame:
+        if self.is_recording:
+            # We capture the raw audio data from the frame
+            self.audio_chunks.append(frame.to_ndarray())
+        return frame
 
 # -----------------------------
 # 🎙️ Voice Recognition
@@ -178,14 +190,72 @@ if mode == "Describe":
         species = identify_butterfly(text)
 
 elif mode == "Voice":
-    # This check now works because VOICE_AVAILABLE is always defined
-    if not VOICE_AVAILABLE: 
-        st.warning("⚠️ **Voice Input is Disabled** because PyAudio dependencies are missing on this server. Please choose **Describe** or **Upload Image**.")
-    else:
-        if st.button("🎙️ Speak Now"):
-            spoken = listen_to_voice()
-            if spoken:
-                species = identify_butterfly(spoken)
+    st.markdown("### 🗣️ Voice Input (via Browser Microphone)")
+    st.info("Click START, speak your butterfly description for a few seconds, then click STOP.")
+    
+    # 1. Start the WebRTC streamer
+    webrtc_ctx = webrtc_streamer(
+        key="speech-rec",
+        mode=WebRtcMode.SENDONLY,
+        audio_processor_factory=AudioRecorder,
+        media_stream_constraints={"video": False, "audio": True},
+    )
+
+    # Check if the session is ready and the processor instance is available
+    if webrtc_ctx.state.playing and webrtc_ctx.audio_processor:
+        processor: AudioRecorder = webrtc_ctx.audio_processor
+
+        # 2. Control the recording process
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔴 START Recording", use_container_width=True):
+                processor.is_recording = True
+                processor.audio_chunks = [] # Clear previous recording
+                st.session_state.voice_status = "Recording..."
+            
+        with col2:
+            if st.button("⏹️ STOP & Identify", use_container_width=True):
+                processor.is_recording = False
+                st.session_state.voice_status = "Processing..."
+        
+        st.caption(st.session_state.get("voice_status", "Ready to record."))
+
+
+        # 3. Process the audio when recording stops
+        if not processor.is_recording and processor.audio_chunks:
+            # Reconstruct the audio data for the speech_recognition library
+            
+            # The component gives us numpy arrays, we convert them to bytes
+            import numpy as np
+            audio_data_np = np.concatenate(processor.audio_chunks, axis=0)
+            audio_bytes = audio_data_np.tobytes()
+            
+            # Create a dummy AudioData object for the recognizer
+            r = sr.Recognizer()
+            
+            # IMPORTANT: This step requires knowing the sample rate/width of the audio.
+            # Assuming 16000 sample rate and 2 bytes (16-bit) sample width
+            # You might need to adjust these based on your environment!
+            audio_data = sr.AudioData(audio_bytes, 16000, 2)
+            
+            st.session_state.voice_status = "Sending to Google..."
+            st.rerun() # Rerun to update status while waiting
+            
+            try:
+                # Use Google Speech Recognition to get text
+                text = r.recognize_google(audio_data)
+                st.success(f"🗣️ You said: {text}")
+                
+                # Identify the butterfly using the transcribed text
+                species = identify_butterfly(text)
+
+            except sr.UnknownValueError:
+                st.error("😕 I couldn't understand that. Try again slowly.")
+            except sr.RequestError as e:
+                st.error(f"⚠️ Speech service unavailable. Error: {e}")
+            
+            # Clear chunks after processing
+            processor.audio_chunks = []
 
 elif mode == "Upload Image":
     file = st.file_uploader("Upload image", type=["jpg", "png", "jpeg"])
