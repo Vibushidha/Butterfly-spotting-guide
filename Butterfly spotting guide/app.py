@@ -5,12 +5,15 @@ import pandas as pd
 import re
 import speech_recognition as sr
 import os
+import sys 
 
-# --- Imports for Real-Time Voice ---
-from streamlit_webrtc import webrtc_streamer, WebRtcMode, AudioProcessorBase
-import av
-import numpy as np
-import io
+# ---------------------------------------------
+# ⚠️ ENVIRONMENT CHECK FOR CONDITIONAL LOGIC
+# ---------------------------------------------
+# Check for environment variables/paths typical of Streamlit Cloud/virtual envs.
+# This boolean variable dictates whether we attempt to use the microphone.
+IS_LOCAL = "localhost" in sys.argv or "127.0.0.1" in sys.argv or os.environ.get('STREAMLIT_SERVER_ADDRESS') is None
+
 
 # -----------------------------
 # 🌿 App Config
@@ -26,6 +29,8 @@ st.write("Describe a butterfly, upload an image, or use your voice to identify i
 # -----------------------------
 # 🦋 Butterfly Data
 # -----------------------------
+# Use os.path.join to ensure the path is correctly constructed relative to the app.py file
+# os.path.dirname(__file__) gets the directory where app.py is located.
 IMAGE_DIR = os.path.join(os.path.dirname(__file__), "data", "sample_images")
 
 butterflies = {
@@ -50,8 +55,6 @@ facts = {
 # -----------------------------
 # 🌍 Migration Data
 # -----------------------------
-# ... (Your migration_data dictionary remains here, unchanged) ...
-
 migration_data = {
     "Monarch": [
         {"month": "Jan", "lat": 19.4, "lon": -99.1, "place": "Mexico", "reason": "Overwintering in warm forests", "fact": "They love the sunshine here ☀️"},
@@ -91,51 +94,34 @@ migration_data = {
     ],
 }
 
-
-# ----------------------------------------
-# 🎙️ REAL-TIME VOICE RECOGNITION (WebRTC)
-# ----------------------------------------
-
-class SpeechToTextProcessor(AudioProcessorBase):
-    def __init__(self):
-        # Using a list to hold raw audio bytes from frames
-        self.audio_container = []
-        self.is_recording = False
-
-    # The method called repeatedly with audio frames from the browser
-    def recv(self, frame: av.AudioFrame) -> av.AudioFrame:
-        if self.is_recording:
-            # Append the raw audio data (bytes)
-            self.audio_container.append(frame.to_ndarray().tobytes())
-        return frame 
-
-# Global variable to store transcribed text
-if 'transcribed_text' not in st.session_state:
-    st.session_state.transcribed_text = None
-
-def process_audio_chunks(audio_bytes_list, recognizer):
-    """Combines and processes audio chunks."""
-    
-    if not audio_bytes_list:
-        return None
-        
-    combined_bytes = b''.join(audio_bytes_list)
-    
-    # Create AudioData object (assuming 16000 sample rate, 16-bit)
+# -----------------------------
+# 🎙️ Voice Recognition
+# -----------------------------
+# This function is designed to work ONLY on localhost where PyAudio is present.
+def listen_to_voice():
+    r = sr.Recognizer()
     try:
-        audio_data = recognizer.AudioData(combined_bytes, 16000, 2)
+        # This line will crash on Streamlit Cloud due to missing PyAudio,
+        # triggering the desired AttributeError for the user.
+        with sr.Microphone() as source:
+            st.info("🎤 Listening... describe the butterfly clearly (you have 5 seconds)...")
+            r.adjust_for_ambient_noise(source, duration=1)
+            audio = r.listen(source, phrase_time_limit=5)
+            try:
+                text = r.recognize_google(audio)
+                st.success(f"🗣️ You said: {text}")
+                return text
+            except sr.UnknownValueError:
+                st.error("😕 I couldn't understand that. Try again slowly.")
+            except sr.RequestError:
+                st.error("⚠️ Speech service unavailable. Please use text input.")
     except Exception as e:
-        st.error(f"Error creating audio data: {e}")
-        return None
-        
-    # Transcribe
-    try:
-        text = recognizer.recognize_google(audio_data)
-        return text
-    except sr.UnknownValueError:
-        return "UnknownValueError"
-    except sr.RequestError:
-        return "RequestError"
+         # This block should ideally not be reached on the server, as the PyAudio failure
+         # occurs deeper in the stack and Streamlit will catch it before this.
+         # This is a fallback for unexpected local errors.
+         st.error(f"Local microphone error: {e}")
+
+    return None
 
 # -----------------------------
 # 🔍 Smarter Identification
@@ -169,7 +155,6 @@ def identify_butterfly(description):
 # -----------------------------
 # 🦋 Interface
 # -----------------------------
-# Removed the complex VOICE_AVAILABLE logic since WebRTC handles it robustly.
 mode = st.radio("Choose input method:", ["Describe", "Voice", "Upload Image"])
 
 if "history" not in st.session_state:
@@ -185,59 +170,19 @@ if mode == "Describe":
         species = identify_butterfly(text)
 
 elif mode == "Voice":
-    st.markdown("### 🗣️ Real-Time Voice Input (via Browser Microphone)")
-    st.info("Click **START**, speak your description, then click **STOP** to process.")
-    
-    # Initialize the WebRTC stream
-    webrtc_ctx = webrtc_streamer(
-        key="speech-rec-key",
-        mode=WebRtcMode.SENDONLY,
-        audio_processor_factory=SpeechToTextProcessor,
-        media_stream_constraints={"video": False, "audio": True},
-    )
-
-    # Check if the stream is active and the processor is available
-    if webrtc_ctx.state.playing and webrtc_ctx.audio_processor:
-        processor: SpeechToTextProcessor = webrtc_ctx.audio_processor
-
-        col1, col2 = st.columns(2)
+    if st.button("🎙️ Speak Now"):
+        # Localhost: IS_LOCAL is True, so listen_to_voice runs and works.
+        # Streamlit Cloud: IS_LOCAL is False, but the code still attempts to run listen_to_voice().
+        # This will crash deep inside the sr.Microphone() call due to the missing PyAudio system dependency,
+        # which results in the desired Streamlit "AttributeError: This app has encountered an error..."
         
-        # Start button logic
-        with col1:
-            if st.button("🔴 START Recording", use_container_width=True):
-                processor.audio_container = [] # Clear old data
-                processor.is_recording = True
-                st.session_state.transcribed_text = None
-                st.session_state.voice_status = "Recording..."
-                st.rerun() # Rerun to update status
-            
-        # Stop button logic
-        with col2:
-            if st.button("⏹️ STOP & Identify", use_container_width=True):
-                processor.is_recording = False
-                st.session_state.voice_status = "Processing..."
-                
-                # Immediately process the audio data
-                if processor.audio_container:
-                    transcribed_text = process_audio_chunks(processor.audio_container, sr)
-                    
-                    if transcribed_text not in ["UnknownValueError", "RequestError", None]:
-                        st.session_state.transcribed_text = transcribed_text
-                    
-                    # Clear the audio container immediately after processing
-                    processor.audio_container = []
-                
-        # Display current status
-        st.caption(f"Status: {st.session_state.get('voice_status', 'Ready')}")
-
-        # Final identification based on transcribed text stored in session state
-        if st.session_state.transcribed_text:
-            st.success(f"🗣️ Transcribed: {st.session_state.transcribed_text}")
-            
-            # Use the transcribed text to identify the butterfly
-            species = identify_butterfly(st.session_state.transcribed_text)
-            st.session_state.transcribed_text = None # Clear after use
-
+        if IS_LOCAL:
+            spoken = listen_to_voice()
+            if spoken:
+                species = identify_butterfly(spoken)
+        else:
+             st.error("⚠️ Voice recognition is disabled in the deployed environment.")
+             st.warning("To test the mic, please clone the repository and run the app locally.")
 
 elif mode == "Upload Image":
     file = st.file_uploader("Upload image", type=["jpg", "png", "jpeg"])
@@ -245,8 +190,6 @@ elif mode == "Upload Image":
         filename = file.name.lower()
         species = identify_butterfly(filename)
 
-
-# Check for identified species from all modes (including voice)
 if species:
     st.success(f"Species Identified: **{species}** 🦋")
     st.image(butterflies[species], caption=species, use_container_width=True)
